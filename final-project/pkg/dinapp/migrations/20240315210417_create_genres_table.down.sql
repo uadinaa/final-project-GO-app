@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS genres;
+DROP TABLE IF EXISTS movies;

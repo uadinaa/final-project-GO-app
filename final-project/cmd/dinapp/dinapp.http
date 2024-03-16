@@ -1,0 +1,50 @@
+# Create 
+
+POST localhost:8082/api/main/moviePost
+Content-Type: application/json
+
+{
+  "movie_title": "The Nun",
+  "description": "The plot follows a Roman Catholic priest and a nun in her novitiate as they uncover an unholy secret in 1952 Romania.",
+  "yearOfProduction": 2018,
+  "genreId": "1",
+}
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
+
+### Get one by id
+GET localhost:8082/api/main/movieGet/1
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
+
+### Update 
+PUT localhost:8082/api/main/movieUpdate/2
+Content-Type: application/json
+
+{
+  "yearOfProduction": 20000
+}
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
+
+### Delete 
+DELETE localhost:8082/api/main/movieDelete/3
+Content-Type: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
