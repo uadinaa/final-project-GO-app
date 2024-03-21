@@ -1,11 +1,6 @@
 package main
 
 import (
-	// model "github.com/uadinaa/final-project-GO-app/tree/main/model"
-	// model "command-line-arguments/Users/dinaabitova/code/golan/final-project/pkg/dinapp/model"
-	// model "command-line-arguments/Users/dinaabitova/code/golan/final-project/pkg/dinapp/model/movies.go"
-	// model "github.com/uadinaa/final-project-GO-app/tree/main/model"
-
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,9 +8,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"final-project/pkg/dinapp/model"
+
 	"github.com/gorilla/mux"
-	"main.go/pkg/dinapp/model"
-	// "github.com/uadinaa/final-project-GO-app/final-project/pkg/dinapp/model"
+	_ "github.com/lib/pq"
+	// "main.go/pkg/dinapp/model"
 )
 
 func (app *application) respondWithError(w http.ResponseWriter, code int, message string) {
@@ -159,7 +156,7 @@ func (app *application) deleteMovieHandler(w http.ResponseWriter, r *http.Reques
 	app.respondWithJSON(w, http.StatusOK, map[string]string{"result": "success"})
 }
 
-func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
+func (app *application) readJSON(_ http.ResponseWriter, r *http.Request, dst interface{}) error {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
@@ -167,9 +164,124 @@ func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst int
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
+
+func (app *application) createGenresHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Id    string `json:"id"`
+		Title string `json:"title"`
+	}
+
+	err := app.readJSON(w, r, &input)
+	if err != nil {
+		log.Println(err)
+		app.respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	genre := &model.Genres{
+		Id:    input.Id,
+		Title: input.Title,
+	}
+
+	err = app.models.Genres.InsertG(genre)
+	if err != nil {
+		app.respondWithError(w, http.StatusInternalServerError, "500 Internal Server Error")
+		return
+	}
+
+	app.respondWithJSON(w, http.StatusCreated, genre)
+}
+
+func (app *application) getGenresHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	param := params["genreId"]
+
+	genre, err := app.models.Genres.GetG(param)
+	if err != nil {
+		app.respondWithError(w, http.StatusNotFound, "404 Not Found")
+		return
+	}
+
+	app.respondWithJSON(w, http.StatusOK, genre)
+}
+
+func (app *application) updateGenreHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	param := params["genreId"]
+
+	genre, err := app.models.Genres.GetG(param)
+	if err != nil {
+		app.respondWithError(w, http.StatusNotFound, "404 Not Found")
+		return
+	}
+
+	var input struct {
+		Title string `json:"title"`
+	}
+
+	err = app.readJSON(w, r, &input)
+	if err != nil {
+		app.respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	genre.Title = input.Title
+
+	err = app.models.Genres.UpdateG(genre)
+	if err != nil {
+		app.respondWithError(w, http.StatusInternalServerError, "500 Internal Server Error")
+		return
+	}
+	app.respondWithJSON(w, http.StatusOK, genre)
+}
+
+func (app *application) deleteGenreHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	param := params["genreId"]
+
+	id, err := strconv.Atoi(param)
+	if err != nil || id < 1 {
+		app.respondWithError(w, http.StatusBadRequest, "Invalid movie ID")
+		return
+	}
+	// err = app.models.Movies.Delete(id)
+
+	err = app.models.Genres.DeleteG(param)
+	if err != nil {
+		app.respondWithError(w, http.StatusInternalServerError, "500 Internal Server Error")
+		return
+	}
+	app.respondWithJSON(w, http.StatusOK, map[string]string{"result": "success"})
+}
+
+// func (app *application) deleteMovieHandler(w http.ResponseWriter, r *http.Request) {
+// 	params := mux.Vars(r)
+// 	param := params["moviesId"]
+
+// 	id, err := strconv.Atoi(param)
+// 	if err != nil || id < 1 {
+// 		app.respondWithError(w, http.StatusBadRequest, "Invalid movie ID")
+// 		return
+// 	}
+
+// 	err = app.models.Movies.Delete(id)
+// 	if err != nil {
+// 		app.respondWithError(w, http.StatusInternalServerError, "500 Internal Server Error")
+// 		return
+// 	}
+// 	app.respondWithJSON(w, http.StatusOK, map[string]string{"result": "success"})
+//
+
+// "main.go/pkg/dinapp/model"
+// "github.com/uadinaa/final-project-GO-app/tree/main/final-project/pkg/dinapp/model"
+// "github.com/uadinaa/final-project-GO-app/final-project/pkg/dinapp/model"
+
+// model "github.com/uadinaa/final-project-GO-app/tree/main/model"
+// model "command-line-arguments/Users/dinaabitova/code/golan/final-project/pkg/dinapp/model"
+// model "command-line-arguments/Users/dinaabitova/code/golan/final-project/pkg/dinapp/model/movies.go"
+// model "github.com/uadinaa/final-project-GO-app/tree/main/model"
 
 // func createMusic(w http.ResponseWriter, r *http.Request) {
 // 	w.Header().Set("Content-Type", "application/json")

@@ -26,7 +26,7 @@ type MovieModel struct {
 
 func (m MovieModel) Insert(movies *Movies) error {
 	query := `
-		INSERT INTO movies (movie_id, movie_title, description, year_of_production, genre_id)
+		INSERT INTO movies_table (movie_id, movie_title, description, year_of_production, genre_id)
 		VALUES ($1, $2, $3, $4, $5) 
 		RETURNING movie_id
 		`
@@ -40,7 +40,7 @@ func (m MovieModel) Insert(movies *Movies) error {
 func (m MovieModel) Get(id int) (*Movies, error) {
 	query := `
 		SELECT movie_id, movie_title, description, year_of_production, genre_id
-		FROM movies
+		FROM movies_table
 		WHERE movie_id = $1
 		`
 	var movies Movies
@@ -57,7 +57,7 @@ func (m MovieModel) Get(id int) (*Movies, error) {
 
 func (m MovieModel) Update(movies *Movies) error {
 	query := `
-		UPDATE movies 
+		UPDATE movies_table 
 		SET movie_title = $1, description = $2, year_of_production = $3, genre_id = $4
 		WHERE movie_id = $5
 		`
@@ -72,7 +72,7 @@ func (m MovieModel) Update(movies *Movies) error {
 
 func (m MovieModel) Delete(id int) error {
 	query := `
-		DELETE FROM movies
+		DELETE FROM movies_table
 		WHERE id = $1
 		`
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
