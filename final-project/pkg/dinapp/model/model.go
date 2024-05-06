@@ -2,14 +2,26 @@ package model
 
 import (
 	"database/sql"
+	"errors"
 	"log"
 	"os"
 )
 
 type Models struct {
-	Movies MovieModel
-	Genres GenreModel
+	Movies      MovieModel
+	Genres      GenreModel
+	Token       TokenModel
+	Users       UserModel
+	Permissions PermissionModel
 }
+
+var (
+	// ErrRecordNotFound is returned when a record doesn't exist in database.
+	ErrRecordNotFound = errors.New("record not found")
+
+	// ErrEditConflict is returned when a there is a data race, and we have an edit conflict.
+	ErrEditConflict = errors.New("edit conflict")
+)
 
 func NewModels(db *sql.DB) Models {
 	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
@@ -25,30 +37,20 @@ func NewModels(db *sql.DB) Models {
 			InfoLog:  infoLog,
 			ErrorLog: errorLog,
 		},
+		Users: UserModel{
+			DB:       db,
+			InfoLog:  infoLog,
+			ErrorLog: errorLog,
+		},
+		Token: TokenModel{
+			DB:       db,
+			InfoLog:  infoLog,
+			ErrorLog: errorLog,
+		},
+		Permissions: PermissionModel{
+			DB:       db,
+			InfoLog:  infoLog,
+			ErrorLog: errorLog,
+		},
 	}
 }
-
-// type Genres struct {
-// 	Id    string `json:"id"`
-// 	Title string `json:"title"`
-// }
-
-// type Movies struct {
-// 	Id               string `json:"id"`
-// 	Title            string `json:"title"`
-// 	Description      string `json:"description"`
-// 	YearOfProduction int    `json:"yearOfProduction"`
-// 	GenreId          string `json:"genreId"`
-// }
-
-// type GenreModel struct {
-// 	DB       *sql.DB
-// 	InfoLog  *log.Logger
-// 	ErrorLog *log.Logger
-// }
-
-// type MovieModel struct {
-// 	DB       *sql.DB
-// 	InfoLog  *log.Logger
-// 	ErrorLog *log.Logger
-// }

@@ -1,31 +1,48 @@
 package main
 
 import (
-	"errors"
+	"fmt"
 	"os"
+	"sync"
 
 	"database/sql"
 	"flag"
 	"log"
-	"net/http"
 
+	"final-project/pkg/dinapp/mailer"
 	"final-project/pkg/dinapp/model"
+	"final-project/pkg/jsonlog"
 
-	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"github.com/peterbourgon/ff/v3"
 )
 
 type config struct {
-	port string
+	port int
 	env  string
 	db   struct {
 		dsn string
+	}
+	// limiter struct {
+	// 	rps     float64
+	// 	burst   int
+	// 	enabled bool
+	// }
+	smtp struct {
+		host     string
+		port     int
+		username string
+		password string
+		sender   string
 	}
 }
 
 type application struct {
 	config config
 	models model.Models
+	logger *jsonlog.Logger
+	wg     sync.WaitGroup
+	mailer mailer.Mailer
 }
 
 // var movies []model.Movies
@@ -33,52 +50,105 @@ type application struct {
 func main() {
 
 	var confg config
-	flag.StringVar(&confg.port, "port", ":8082", "API server port")
+	fs := flag.NewFlagSet("demo-app-demo-app", flag.ContinueOnError)
+
+	log.Println("Starting API server")
+	flag.IntVar(&confg.port, "port", 8082, "API server port")
 	flag.StringVar(&confg.env, "env", "development", "Environment(development|staging|production)")
+
+	var (
+		// confg      config
+		// fill       = fs.Bool("fill", false, "Fill database with dummy data")
+		// migrations = fs.String("migrations", "", "Path to migration files folder. If not provided, migrations do not applied")
+		port  = fs.Int("port", 8082, "API server port")
+		env   = fs.String("env", "development", "Environment (development|staging|production)")
+		dbDsn = fs.String("dsn", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable", "PostgreSQL DSN")
+	)
 	//  postgres://<username>:<password>@localhost:<port>/<db_name>?sslmode=disable   dinaabitova
+	// flag.Float64Var(&confg.limiter.rps, "limiter-rps", 2, "Rate limiter maximum requests per second")
+	// flag.IntVar(&confg.limiter.burst, "limiter-burst", 4, "Rate limiter maximum burst")
+	// flag.BoolVar(&confg.limiter.enabled, "limiter-enabled", true, "Enable rate limiter")
+
+	flag.StringVar(&confg.smtp.host, "smtp-host", "smtp.mailtrap.io", "SMTP host")
+	flag.IntVar(&confg.smtp.port, "smtp-port", 2525, "SMTP port")
+	flag.StringVar(&confg.smtp.username, "smtp-username", "0abf276416b183", "SMTP username")
+	flag.StringVar(&confg.smtp.password, "smtp-password", "d8672aa2264bb5", "SMTP password")
+	flag.StringVar(&confg.smtp.sender, "smtp-sender", "Greenlight <no-reply@greenlight.alexedwards.net>", "SMTP sender")
+
 	flag.StringVar(&confg.db.dsn, "db-dsn", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable", "PostgreSQL DSN")
+
 	flag.Parse()
+
+	// logger := jsonlog.New(os.Stdout, jsonlog.LevelInfo)
+	logger := jsonlog.NewLogger(os.Stdout, jsonlog.LevelInfo)
+
+	if err := ff.Parse(fs, os.Args[1:], ff.WithEnvVars()); err != nil {
+		logger.PrintFatal(err, nil)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+
+	confg.port = *port
+	confg.env = *env
+	// confg.fill = *fill
+	confg.db.dsn = *dbDsn
+	// confg.migrations = *migrations
+
+	logger.PrintInfo("starting application with configuration", map[string]string{
+		"port": fmt.Sprintf("%d", confg.port),
+		// "fill": fmt.Sprintf("%t", confg.fill),
+		"env": confg.env,
+		"db":  confg.db.dsn,
+	})
 
 	db, err := openDB(confg)
 
 	if err != nil {
-		var pgErr *os.SyscallError
-		if errors.As(err, &pgErr) {
-			log.Fatalf("Error opening database: %s\n", pgErr.Error())
-			return
-		}
-		log.Fatal(err)
-		return
+		logger.PrintFatal(err, nil)
 	}
-	defer db.Close()
+
+	defer func() {
+		if err := db.Close(); err != nil {
+			logger.PrintFatal(err, nil)
+		}
+	}()
+
+	// if err != nil {
+	// 	var pgErr *os.SyscallError
+	// 	if errors.As(err, &pgErr) {
+	// 		log.Fatalf("Error opening database: %s\n", pgErr.Error())
+	// 		return
+	// 	}
+	// 	log.Fatal(err)
+	// 	return
+	// }
+	// defer db.Close()
 
 	app := &application{
 		config: confg,
 		models: model.NewModels(db),
+		logger: logger,
 	}
-	app.run()
-}
 
-func (app *application) run() {
+	// srv := &http.Server{
+	// 	Addr:         fmt.Sprintf(":%d", confg.port),
+	// 	Handler:      app.routes(),
+	// 	IdleTimeout:  time.Minute,
+	// 	ReadTimeout:  10 * time.Second,
+	// 	WriteTimeout: 10 * time.Second,
+	// }
 
-	router := mux.NewRouter()
+	// logger.PrintInfo("starting server", map[string]string{
+	// 	"addr": srv.Addr,
+	// 	"env":  confg.env,
+	// })
+	// err = srv.ListenAndServe()
 
-	r := router.PathPrefix("/api/main").Subrouter()
+	// logger.PrintFatal(err, nil)
 
-	r.HandleFunc("/movie/{movieId:[0-9]+}", app.getMoviesHandler).Methods("GET")
-	r.HandleFunc("/movie", app.createMoviesHandler).Methods("POST")
-	r.HandleFunc("/movie/{movieId:[0-9]+}", app.updateMovieHandler).Methods("PUT")
-	r.HandleFunc("/api/movie/{movieId:[0-9]+}", app.deleteMovieHandler).Methods("DELETE")
-
-	r.HandleFunc("/genre/{movieId:[0-9]+}", app.getGenresHandler).Methods("GET")
-	r.HandleFunc("/genre", app.createGenresHandler).Methods("POST")
-	r.HandleFunc("/genre/{movieId:[0-9]+}", app.updateGenreHandler).Methods("PUT")
-	r.HandleFunc("/genre/{movieId:[0-9]+}", app.deleteGenreHandler).Methods("DELETE")
-
-	log.Printf("Starting server on %s\n", app.config.port)
-	errorr := http.ListenAndServe(app.config.port, r)
-	log.Fatal(errorr)
-
+	err = app.serve()
+	if err != nil {
+		logger.PrintFatal(err, nil)
+	}
 }
 
 func openDB(confg config) (*sql.DB, error) {
@@ -93,53 +163,3 @@ func openDB(confg config) (*sql.DB, error) {
 	}
 	return db, nil
 }
-
-// router := mux.NewRouter()
-
-// musics = append(musics, MusicMax{ID: "1", Isbn: "1234", Name: "Tadow", Artist: &Author{FirstName: "Masaego", LastName: "FKJ"}})
-// musics = append(musics, MusicMax{ID: "2", Isbn: "5678", Name: "Далада", Artist: &Author{FirstName: "PRiNCE", LastName: "Папа"}})
-// musics = append(musics, MusicMax{ID: "3", Isbn: "9012", Name: "35+34", Artist: &Author{FirstName: "Ariana", LastName: "Grande"}})
-
-// router.HandleFunc("/api/musics", getMusics).Methods("GET") //это ссылканын сондары биз жасап жатырмыз
-// router.HandleFunc("/api/musics/{id}", getMusic).Methods("GET")
-// router.HandleFunc("/api/musics", createMusic).Methods("POST")
-// router.HandleFunc("/api/musics/{id}", updateMusics).Methods("PUT")
-// router.HandleFunc("/api/musics/{id}", deleteMusics).Methods("DELETE") // а тут можно айдига не только намберс но и стринги запихнуть можно
-// //r.HandleFunc("/restaurants/{id:[0-9]+}", restaurant) прикол это типа онли фор диджитс
-
-// // const PORT = ":8080" можно и так
-// // log.Fatal(http.ListenAndServe(":8000", router)) BEFORE
-// const port = ":8000"
-// log.Fatal(http.ListenAndServe(port, router))
-// log.Printf("starting server on %s \n", port)
-// // 	log.Printf("Starting server on %s\n", PORT)
-
-// errorr := http.ListenAndServe(port, router) //корейк не шыгады екеен, но пон что еррор хаха
-// log.Fatal(errorr)
-
-// router := r.PathPrefix("/api/main").Subrouter()
-
-// movies = append(movies, model.Movies{Title: "flmf", Description: "hi", YearOfProduction: 2300, GenreId: "1"})
-
-// router.HandleFunc("/api/musics", getMusics).Methods("GET") //это ссылканын сондары биз жасап жатырмыз
-
-// "Users/dinaabitova/code/golan/final-project/pkg/dinapp/model"
-// "github.com/uadinaa/final-project/pkg/dinapp/model"
-
-// "main.go/pkg/dinapp/model"
-
-// "github.com/uadinaa/final-project-GO-app/tree/main/model"
-// model "command-line-arguments/Users/dinaabitova/code/golan/final-project/pkg/dinapp/model/movies.go"
-
-// func main() {
-// 	// For windows use postgresql:// instead of postgres:// in the connection string first part
-// 	db, err := sql.Open("postgres", "postgres://postgres:dinaisthebest@localhost/postgres?sslmode=disable")
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	err = db.Ping()
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	fmt.Println("Connected to DB!")
-// }

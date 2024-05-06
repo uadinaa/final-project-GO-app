@@ -4,19 +4,62 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"final-project/pkg/dinapp/model"
+
+	"final-project/pkg/dinapp/validator"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
 	// "main.go/pkg/dinapp/model"
 )
 
+func (app *application) writeJSON(w http.ResponseWriter, status int, data interface{}, headers http.Header) error {
+
+	js, err := json.MarshalIndent(data, "", "\t")
+
+	if err != nil {
+		return err
+	}
+
+	js = append(js, '\n')
+
+	for key, value := range headers {
+		w.Header()[key] = value
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(js)
+
+	return nil
+}
+
+func (app *application) readIDParam(r *http.Request) (int64, error) {
+	param := mux.Vars(r)["id"]
+	id, err := strconv.ParseInt(param, 10, 64)
+	if err != nil || id < 1 {
+		return 0, errors.New("invalid id parameter")
+	}
+	return id, nil
+}
+
+// func (app *application) readUsernameParam(r *http.Request) (string, error) {
+// 	username := mux.Vars(r)["username"]
+// 	return username, nil
+// }
+
 func (app *application) respondWithError(w http.ResponseWriter, code int, message string) {
+	// app.logError(r, message)
+
 	app.respondWithJSON(w, code, map[string]string{"error": message})
+
 }
 
 func (app *application) respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
@@ -31,6 +74,78 @@ func (app *application) respondWithJSON(w http.ResponseWriter, code int, payload
 	w.WriteHeader(code)
 	w.Write(response)
 }
+
+// func (app *application) readJSON(_ http.ResponseWriter, r *http.Request, dst interface{}) error {
+// 	dec := json.NewDecoder(r.Body)
+// 	dec.DisallowUnknownFields()
+
+//		err := dec.Decode(dst)
+//		if err != nil {
+//			return err
+//		}
+//		return nil
+//	}
+func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
+
+	maxBytes := 1_048_576
+	r.Body = http.MaxBytesReader(w, r.Body, int64(maxBytes))
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	err := dec.Decode(dst)
+	if err != nil {
+		var syntaxError *json.SyntaxError
+		var unmarshalTypeError *json.UnmarshalTypeError
+		var invalidUnmarshalError *json.InvalidUnmarshalError
+
+		switch {
+		case errors.As(err, &syntaxError):
+			return fmt.Errorf("body contains badly-formed JSON at (charcter %d)", syntaxError.Offset)
+
+		case errors.Is(err, io.ErrUnexpectedEOF):
+			return errors.New("body contains badly-formed JSON")
+		case errors.As(err, &unmarshalTypeError):
+			if unmarshalTypeError.Field != "" {
+				return fmt.Errorf("body contains incorrect JSON type for field %q",
+					unmarshalTypeError.Field)
+			}
+			return fmt.Errorf("body contains incorrect JSON type (at character %d)",
+				unmarshalTypeError.Offset)
+
+		case errors.Is(err, io.EOF):
+			return errors.New("body must not be empty")
+
+		case strings.HasPrefix(err.Error(), "json: unknown field "):
+			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
+			return fmt.Errorf("body contains unknown key %s", fieldName)
+
+		case err.Error() == "http: request body too large":
+			return fmt.Errorf("body must not be larger than %d bytes", maxBytes)
+
+		case errors.As(err, &invalidUnmarshalError):
+			panic(err)
+
+		// For anything else, return the error message as-is.
+		default:
+			return err
+		}
+	}
+	err = dec.Decode(&struct{}{})
+	if err != io.EOF {
+		return errors.New("body must only contain a single JSON value")
+	}
+
+	return nil
+}
+
+//
+//
+//
+// MOVIE
+//
+//
+//
 
 func (app *application) createMoviesHandler(w http.ResponseWriter, r *http.Request) {
 	var input struct {
@@ -60,30 +175,158 @@ func (app *application) createMoviesHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	headers := make(http.Header)
+	// headers.Set("location", fmt.Sprintf("/v1/movies/%d", movie.Id))
+	headers.Set("location", fmt.Sprintf("/v1/movie/%v", movie.Id))
+
+	err = app.writeJSON(w, http.StatusOK, envelope{"movie": movie}, headers)
+
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+
 	app.respondWithJSON(w, http.StatusCreated, movie)
+	app.writeJSON(w, http.StatusCreated, envelope{"movie": movie}, nil)
+}
+
+// func (app *application) createGenresHandler(w http.ResponseWriter, r *http.Request) {
+// 	var input struct {
+// 		Title string `json:"title"`
+// 	}
+
+// 	err := app.readJSON(w, r, &input)
+// 	if err != nil {
+// 		log.Println(err)
+// 		app.respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+// 		return
+// 	}
+
+// 	genre := &model.Genres{
+// 		Title: input.Title,
+// 	}
+
+// 	err = app.models.Genres.InsertG(genre)
+// 	if err != nil {
+// 		app.respondWithError(w, http.StatusInternalServerError, "500 Internal Server Error")
+// 		return
+// 	}
+
+// 	// app.respondWithJSON(w, http.StatusCreated, genre)
+// 	app.writeJSON(w, http.StatusCreated, envelope{"genre": genre}, nil)
+// 	// fmt.Fprintln(w, "status: available")
+// 	// fmt.Fprintf(w, "enviroment: %s\n", app.config.env)
+// }
+
+func (app *application) listMoviesHandler(w http.ResponseWriter, r *http.Request) {
+
+	var input struct {
+		Title            string
+		Description      string
+		YearOfProduction int
+		GenreId          string
+		model.Filters
+	}
+
+	v := validator.New()
+
+	qs := r.URL.Query()
+
+	input.Title = app.readString(qs, "movie_title", "")
+
+	input.YearOfProduction = app.readInt(qs, "yearOfProduction", 2000, v)
+
+	input.GenreId = app.readString(qs, "genreId", "")
+
+	input.Filters.Page = app.readInt(qs, "page", 1, v)
+	input.Filters.PageSize = app.readInt(qs, "page_size", 20, v)
+
+	input.Filters.Sort = app.readString(qs, "sort", "id")
+
+	input.Filters.SortSafelist = []string{
+		"movie_id", "movie_title", "description", "genreId", "yearOfProduction",
+		"-movie_id", "-movie_title", "-description", "-genreId", "-yearOfProduction"}
+
+	if model.ValidateFilters(v, input.Filters); !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	if model.ValidateFilters(v, input.Filters); !v.Valid() {
+		// Convert validation errors into a single error message
+		errorMessage := "Validation errors: "
+		for _, err := range v.Errors {
+			errorMessage += err + "; "
+		}
+		app.serverErrorResponse(w, r, errors.New(errorMessage))
+
+		return
+	}
+
+	// movies, err := app.models.Movies.GetAll(input.Title, input.YearOfProduction, input.Filters) //, input.GenreId
+
+	movies, metadata, err := app.models.Movies.GetAll(input.Title, input.YearOfProduction, input.GenreId, input.Filters) //input.GenreId,
+
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+	app.writeJSON(w, http.StatusOK, envelope{"movies": movies, "metadata": metadata}, nil)
+
+	// err = app.writeJSON(w, http.StatusOK, envelope{"movies": movies}, nil)
+
+	// if err != nil {
+	// 	app.serverErrorResponse(w, r, err)
+	// }
 }
 
 func (app *application) getMoviesHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	param := params["movieId"]
+	// params := mux.Vars(r)
+	// param := params["movieId"]
 
-	id, err := strconv.Atoi(param)
-	if err != nil || id < 1 {
+	// id, err := strconv.Atoi(param)
+	id, err := app.readIDParam(r)
+
+	if err != nil { //|| id < 1
 		app.respondWithError(w, http.StatusBadRequest, "Invalid movie ID")
 		return
 	}
 
-	movies, err := app.models.Movies.Get(id)
+	movies, err := app.models.Movies.Get(int(id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			log.Printf("Menu with ID %d not found\n", id)
+			log.Printf("Movie with ID %d not found\n", id)
+			app.respondWithError(w, http.StatusNotFound, "404 Not Found")
+			return
 		}
-		app.respondWithError(w, http.StatusNotFound, "404 Not Found")
+		app.serverErrorResponse(w, r, err)
+		app.respondWithError(w, http.StatusNotFound, "404pp Not Found")
 		return
 	}
 
 	app.respondWithJSON(w, http.StatusOK, movies)
 }
+
+// func (app *application) getBookHandler(w http.ResponseWriter, r *http.Request) {
+// 	id, err := app.readIDParam(r)
+// 	if err != nil {
+// 		app.notFoundResponse(w, r)
+// 		return
+// 	}
+// 	book, err := app.models.Books.Get(id)
+// 	if err != nil {
+// 		switch {
+// 		case errors.Is(err, model.ErrRecordNotFound):
+// 			app.notFoundResponse(w, r)
+// 		default:
+// 			app.serverErrorResponse(w, r, err)
+// 		}
+// 		return
+// 	}
+// 	err = app.writeJSON(w, http.StatusOK, envelope{"book": book}, nil)
+// 	if err != nil {
+// 		app.serverErrorResponse(w, r, err)
+// 	}
+// }
 
 func (app *application) updateMovieHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
@@ -95,9 +338,9 @@ func (app *application) updateMovieHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	movie, err := app.models.Movies.Get(id)
+	movie, err := app.models.Movies.Get(int(id))
 	if err != nil {
-		app.respondWithError(w, http.StatusNotFound, "404 Not Found")
+		app.respondWithError(w, http.StatusNotFound, "404uu Not Found")
 		return
 	}
 
@@ -130,6 +373,12 @@ func (app *application) updateMovieHandler(w http.ResponseWriter, r *http.Reques
 		movie.GenreId = *input.GenreId
 	}
 
+	// v := validator.New()
+	// if data.ValidateMovie(v, movie); !v.Valid() {
+	// 	app.failedValidationResponse(w, r, v.Errors)
+	// 	return
+	// }
+
 	err = app.models.Movies.Update(movie)
 	if err != nil {
 		app.respondWithError(w, http.StatusInternalServerError, "500 Internal Server Error")
@@ -140,7 +389,7 @@ func (app *application) updateMovieHandler(w http.ResponseWriter, r *http.Reques
 
 func (app *application) deleteMovieHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	param := params["moviesId"]
+	param := params["movieId"]
 
 	id, err := strconv.Atoi(param)
 	if err != nil || id < 1 {
@@ -156,20 +405,16 @@ func (app *application) deleteMovieHandler(w http.ResponseWriter, r *http.Reques
 	app.respondWithJSON(w, http.StatusOK, map[string]string{"result": "success"})
 }
 
-func (app *application) readJSON(_ http.ResponseWriter, r *http.Request, dst interface{}) error {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	err := dec.Decode(dst)
-	if err != nil {
-		return err
-	}
-	return nil
-}
+//
+//
+//
+// GENRE
+//
+//
+//
 
 func (app *application) createGenresHandler(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Id    string `json:"id"`
 		Title string `json:"title"`
 	}
 
@@ -181,7 +426,6 @@ func (app *application) createGenresHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	genre := &model.Genres{
-		Id:    input.Id,
 		Title: input.Title,
 	}
 
@@ -191,26 +435,57 @@ func (app *application) createGenresHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	app.respondWithJSON(w, http.StatusCreated, genre)
+	// app.respondWithJSON(w, http.StatusCreated, genre)
+	app.writeJSON(w, http.StatusCreated, envelope{"genre": genre}, nil)
+	// fmt.Fprintln(w, "status: available")
+	// fmt.Fprintf(w, "enviroment: %s\n", app.config.env)
 }
 
 func (app *application) getGenresHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	param := params["genreId"]
 
+	// genre, err := app.models.Genres.GetG(param)
+	genreID, err := strconv.Atoi(param)
+	if err != nil || genreID < 1 {
+		app.respondWithError(w, http.StatusBadRequest, "Invalid genre ID")
+		return
+	}
+
 	genre, err := app.models.Genres.GetG(param)
 	if err != nil {
-		app.respondWithError(w, http.StatusNotFound, "404 Not Found")
+		if errors.Is(err, sql.ErrNoRows) {
+			log.Printf("genre with ID %d not found\n", genreID)
+		}
+		app.respondWithError(w, http.StatusNotFound, "404pp Not Found")
 		return
 	}
 
 	app.respondWithJSON(w, http.StatusOK, genre)
+
+}
+
+func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
+	env := envelope{
+		"status": "available",
+		"system_info": map[string]string{
+			"welcoming message": "Hello! Welcome to Diina's API about movies and books",
+			"environment":       app.config.env,
+		},
+	}
+	// time.Sleep(1 * time.Second)
+	err := app.writeJSON(w, http.StatusOK, env, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+
 }
 
 func (app *application) updateGenreHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	param := params["genreId"]
 
+	// genreID, err := strconv.Atoi(param)
 	genre, err := app.models.Genres.GetG(param)
 	if err != nil {
 		app.respondWithError(w, http.StatusNotFound, "404 Not Found")
@@ -240,6 +515,7 @@ func (app *application) updateGenreHandler(w http.ResponseWriter, r *http.Reques
 func (app *application) deleteGenreHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	param := params["genreId"]
+	// genreID, err := strconv.Atoi(param)
 
 	id, err := strconv.Atoi(param)
 	if err != nil || id < 1 {
@@ -255,90 +531,3 @@ func (app *application) deleteGenreHandler(w http.ResponseWriter, r *http.Reques
 	}
 	app.respondWithJSON(w, http.StatusOK, map[string]string{"result": "success"})
 }
-
-// func (app *application) deleteMovieHandler(w http.ResponseWriter, r *http.Request) {
-// 	params := mux.Vars(r)
-// 	param := params["moviesId"]
-
-// 	id, err := strconv.Atoi(param)
-// 	if err != nil || id < 1 {
-// 		app.respondWithError(w, http.StatusBadRequest, "Invalid movie ID")
-// 		return
-// 	}
-
-// 	err = app.models.Movies.Delete(id)
-// 	if err != nil {
-// 		app.respondWithError(w, http.StatusInternalServerError, "500 Internal Server Error")
-// 		return
-// 	}
-// 	app.respondWithJSON(w, http.StatusOK, map[string]string{"result": "success"})
-//
-
-// "main.go/pkg/dinapp/model"
-// "github.com/uadinaa/final-project-GO-app/tree/main/final-project/pkg/dinapp/model"
-// "github.com/uadinaa/final-project-GO-app/final-project/pkg/dinapp/model"
-
-// model "github.com/uadinaa/final-project-GO-app/tree/main/model"
-// model "command-line-arguments/Users/dinaabitova/code/golan/final-project/pkg/dinapp/model"
-// model "command-line-arguments/Users/dinaabitova/code/golan/final-project/pkg/dinapp/model/movies.go"
-// model "github.com/uadinaa/final-project-GO-app/tree/main/model"
-
-// func createMusic(w http.ResponseWriter, r *http.Request) {
-// 	w.Header().Set("Content-Type", "application/json")
-// 	var music MusicMax
-// 	_ = json.NewDecoder(r.Body).Decode(&music)
-// 	music.ID = strconv.Itoa(rand.Intn(100)) //по сути нат зе бест чойс просто рандомно просто создает the id
-// 	musics = append(musics, music)
-// 	json.NewEncoder(w).Encode(music)
-// }
-
-// func getMusic(w http.ResponseWriter, r *http.Request) {
-// 	w.Header().Set("Content-Type", "application/json") //сделали его стрингом типа соны кайтару керек деп
-// 	params := mux.Vars(r)
-// 	for _, item := range musics { // item = iterator
-// 		if item.ID == params["id"] {
-// 			json.NewEncoder(w).Encode(item)
-// 			return
-// 		}
-// 	}
-// 	json.NewEncoder(w).Encode(&MusicMax{})
-// }
-
-// // to add new song to site
-// func createMusic(w http.ResponseWriter, r *http.Request) {
-// 	w.Header().Set("Content-Type", "application/json")
-// 	var music MusicMax
-// 	_ = json.NewDecoder(r.Body).Decode(&music)
-// 	music.ID = strconv.Itoa(rand.Intn(100)) //по сути нат зе бест чойс просто рандомно просто создает the id
-// 	musics = append(musics, music)
-// 	json.NewEncoder(w).Encode(music)
-// }
-
-// // we can обновить инфу
-// func updateMusics(w http.ResponseWriter, r *http.Request) {
-// 	w.Header().Set("Content-Type", "application/json")
-// 	params := mux.Vars(r)
-// 	for index, item := range musics {
-// 		if item.ID == params["id"] {
-// 			musics = append(musics[:index], musics[index+1:]...)
-// 			var music MusicMax
-// 			_ = json.NewDecoder(r.Body).Decode(&music)
-// 			music.ID = params["id"]
-// 			musics = append(musics, music)
-// 			json.NewEncoder(w).Encode(music)
-// 			return
-// 		}
-// 	}
-// }
-
-// func deleteMusics(w http.ResponseWriter, r *http.Request) {
-// 	w.Header().Set("Content-Type", "application/json")
-// 	params := mux.Vars(r)
-// 	for index, item := range musics {
-// 		if item.ID == params["id"] {
-// 			musics = append(musics[:index], musics[index+1:]...)
-// 			break
-// 		}
-// 	}
-// 	json.NewEncoder(w).Encode(musics)
-// }
