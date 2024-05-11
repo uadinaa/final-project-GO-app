@@ -33,6 +33,7 @@ func (app *application) routes() http.Handler {
 	v1.HandleFunc("/genre/{genreId}", app.deleteGenreHandler).Methods("DELETE")
 
 	v1.HandleFunc("/users", app.registerUserHandler).Methods("POST")
+	v1.HandleFunc("/users/activated", app.activateUserHandler).Methods("PUT")
 
 	return r
 	// app.recoverPanic(app.rateLimit(r))

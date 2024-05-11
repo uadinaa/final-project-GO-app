@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"final-project/pkg/dinapp/validator"
@@ -117,6 +118,54 @@ func (m UserModel) Update(user *User) error {
 		}
 	}
 	return nil
+}
+
+func (m UserModel) GetForToken(tokenScope, tokenPlaintext string) (*User, error) {
+	// Calculate the SHA-256 hash for the plaintext token provided by the client.
+	// Note, that this will return a byte *array* with length 32, not a slice.
+	tokenHash := sha256.Sum256([]byte(tokenPlaintext))
+
+	query := `
+		SELECT 
+			users.id, users.created_at, users.name, users.email, 
+			users.password_hash, users.activated, users.version
+		FROM       users
+        INNER JOIN tokens
+			ON users.id = tokens.user_id
+        WHERE tokens.hash = $1  --<-- Note: this is potentially vulnerable to a timing attack, 
+            -- but if successful the attacker would only be able to retrieve a *hashed* token 
+            -- which would still require a brute-force attack to find the 26 character string
+            -- that has the same SHA-256 hash that was found from our database. 
+			AND tokens.scope = $2
+			AND tokens.expiry > $3
+		`
+
+	args := []interface{}{tokenHash[:], tokenScope, time.Now()}
+
+	var user User
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := m.DB.QueryRowContext(ctx, query, args...).Scan(
+		&user.Id,
+		&user.CreatedAt,
+		&user.Name,
+		&user.Email,
+		&user.Password.hash,
+		&user.Activated,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil, ErrRecordNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	// Return the matching user.
+	return &user, nil
 }
 
 func ValidateEmail(v *validator.Validator, email string) {

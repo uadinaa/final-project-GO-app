@@ -21,13 +21,15 @@ type config struct {
 	port int
 	env  string
 	db   struct {
-		dsn string
+		port       int
+		env        string
+		fill       bool
+		migrations string
+		db         struct {
+			dsn string
+		}
 	}
-	// limiter struct {
-	// 	rps     float64
-	// 	burst   int
-	// 	enabled bool
-	// }
+
 	smtp struct {
 		host     string
 		port     int
@@ -75,7 +77,7 @@ func main() {
 	flag.StringVar(&confg.smtp.password, "smtp-password", "d8672aa2264bb5", "SMTP password")
 	flag.StringVar(&confg.smtp.sender, "smtp-sender", "Greenlight <no-reply@greenlight.alexedwards.net>", "SMTP sender")
 
-	flag.StringVar(&confg.db.dsn, "db-dsn", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable", "PostgreSQL DSN")
+	flag.StringVar(&confg.db.db.dsn, "db-dsn", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable", "PostgreSQL DSN")
 
 	flag.Parse()
 
@@ -90,14 +92,14 @@ func main() {
 	confg.port = *port
 	confg.env = *env
 	// confg.fill = *fill
-	confg.db.dsn = *dbDsn
+	confg.db.db.dsn = *dbDsn
 	// confg.migrations = *migrations
 
 	logger.PrintInfo("starting application with configuration", map[string]string{
 		"port": fmt.Sprintf("%d", confg.port),
 		// "fill": fmt.Sprintf("%t", confg.fill),
 		"env": confg.env,
-		"db":  confg.db.dsn,
+		"db":  confg.db.db.dsn,
 	})
 
 	db, err := openDB(confg)
@@ -152,7 +154,7 @@ func main() {
 }
 
 func openDB(confg config) (*sql.DB, error) {
-	db, err := sql.Open("postgres", confg.db.dsn)
+	db, err := sql.Open("postgres", confg.db.db.dsn)
 	// db, err := sql.Open("postgres", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable")
 	if err != nil {
 		return nil, err
