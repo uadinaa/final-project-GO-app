@@ -2,13 +2,13 @@ package model
 
 import (
 	"context"
-	"database/sql"
+	"github.com/jmoiron/sqlx"
 	"errors"
 	"fmt"
 	"log"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 )
 
 type Genres struct {
@@ -19,7 +19,7 @@ type Genres struct {
 }
 
 type GenreModel struct {
-	DB       *sql.DB
+	DB       *sqlx.DB
 	InfoLog  *log.Logger
 	ErrorLog *log.Logger
 }

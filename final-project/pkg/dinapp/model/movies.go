@@ -2,12 +2,12 @@ package model
 
 import (
 	"context"
-	"database/sql"
+	"github.com/jmoiron/sqlx"
 	"fmt"
 	"log"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+
 )
 
 type Movies struct {
@@ -17,26 +17,40 @@ type Movies struct {
 	Title            string `json:"title"`
 	Description      string `json:"description"`
 	YearOfProduction int    `json:"year_of_production"`
-	GenreId          string `json:"genre_id"`
+	Genre          string `json:"genre"`
 }
 
 type MovieModel struct {
-	DB       *sql.DB
+	DB       *sqlx.DB
 	InfoLog  *log.Logger
 	ErrorLog *log.Logger
 }
 
 func (m MovieModel) Insert(movies *Movies) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	args := []interface{}{movies.Genre}
+
+	var id int 
 	query := `
-		INSERT INTO movies (movie_title, description, year_of_production, genre_id)
+		INSERT INTO genres (genre_title)
+		VALUES ($1) 
+		RETURNING genre_id
+		`
+	err := m.DB.QueryRowContext(ctx, query, args...).Scan(&id)
+	if err != nil {
+		return err
+	}
+	
+	query = `
+		INSERT INTO movies (movie_title, description, year_of_production, genre)
 		VALUES ($1, $2, $3, $4) 
 		RETURNING movie_id
 		`
-	args := []interface{}{movies.Title, movies.Description, movies.YearOfProduction, movies.GenreId}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	args = []interface{}{movies.Title, movies.Description, movies.YearOfProduction, movies.Genre}
 
-	return m.DB.QueryRowContext(ctx, query, args...).Scan(&movies.Id, &movies.CreatedAt, &movies.UpdatedAt)
+
+	return m.DB.QueryRowContext(ctx, query, args...).Scan(&id)
 }
 
 func (m MovieModel) Get(id int) (*Movies, error) {
@@ -53,7 +67,7 @@ func (m MovieModel) Get(id int) (*Movies, error) {
 	defer cancel()
 
 	row := m.DB.QueryRowContext(ctx, query, id)
-	err := row.Scan(&movie.Id, &movie.Title, &movie.CreatedAt, &movie.UpdatedAt, &movie.Description, &movie.YearOfProduction, &movie.GenreId)
+	err := row.Scan(&movie.Id, &movie.Title, &movie.CreatedAt, &movie.UpdatedAt, &movie.Description, &movie.YearOfProduction, &movie.Genre)
 
 	if err != nil {
 		return nil, fmt.Errorf("cannot retrive movie with id: %v, %w", id, err)
@@ -101,7 +115,7 @@ func (m MovieModel) GetAll(title string, yearOfProduction int, genreId string, f
 			&movie.Title,
 			&movie.Description,
 			&movie.YearOfProduction,
-			&movie.GenreId,
+			&movie.Genre,
 		)
 		if err != nil {
 			return nil, Metadata{}, err
@@ -127,7 +141,7 @@ func (m MovieModel) Update(movie *Movies) error {
 		RETURNING updatedAt
 		`
 
-	args := []interface{}{movie.Title, movie.Description, movie.YearOfProduction, movie.GenreId, movie.Id}
+	args := []interface{}{movie.Title, movie.Description, movie.YearOfProduction, movie.Genre, movie.Id}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 

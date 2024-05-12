@@ -25,7 +25,7 @@ func (app *application) routes() http.Handler {
 	v1.HandleFunc("/movie/{movieId}", app.updateMovieHandler).Methods("PUT")
 	v1.HandleFunc("/movie/{movieId}", app.deleteMovieHandler).Methods("DELETE")
 
-	v1.HandleFunc("/movies", app.listMoviesHandler).Methods("GET")
+	v1.HandleFunc("/movie/", app.listMoviesHandler).Methods("GET")
 
 	v1.HandleFunc("/genre/{genreId}", app.getGenresHandler).Methods("GET")
 	v1.HandleFunc("/genre", app.createGenresHandler).Methods("POST")

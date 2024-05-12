@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
+	"github.com/jmoiron/sqlx"
 	"encoding/base32"
 	"log"
 	"time"
@@ -31,7 +31,7 @@ type (
 	// TokenModel struct wraps a sql.DB connection pool and allows us to work with the Token struct
 	// type and the tokens table in our database.
 	TokenModel struct {
-		DB       *sql.DB
+		DB       *sqlx.DB
 		InfoLog  *log.Logger
 		ErrorLog *log.Logger
 	}

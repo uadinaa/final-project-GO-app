@@ -5,7 +5,7 @@ import (
 	"os"
 	"sync"
 
-	"database/sql"
+	"github.com/jmoiron/sqlx"
 	"flag"
 	"log"
 
@@ -64,7 +64,7 @@ func main() {
 		// migrations = fs.String("migrations", "", "Path to migration files folder. If not provided, migrations do not applied")
 		port  = fs.Int("port", 8082, "API server port")
 		env   = fs.String("env", "development", "Environment (development|staging|production)")
-		dbDsn = fs.String("dsn", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable", "PostgreSQL DSN")
+		//dbDsn = fs.String("dsn", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable", "PostgreSQL DSN")
 	)
 	//  postgres://<username>:<password>@localhost:<port>/<db_name>?sslmode=disable   dinaabitova
 	// flag.Float64Var(&confg.limiter.rps, "limiter-rps", 2, "Rate limiter maximum requests per second")
@@ -76,8 +76,8 @@ func main() {
 	flag.StringVar(&confg.smtp.username, "smtp-username", "0abf276416b183", "SMTP username")
 	flag.StringVar(&confg.smtp.password, "smtp-password", "d8672aa2264bb5", "SMTP password")
 	flag.StringVar(&confg.smtp.sender, "smtp-sender", "Greenlight <no-reply@greenlight.alexedwards.net>", "SMTP sender")
-
-	flag.StringVar(&confg.db.db.dsn, "db-dsn", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable", "PostgreSQL DSN")
+//"host=db port=5432 user=postgres dbname=postgres password=dinaisthebest sslmode=disable"
+	flag.StringVar(&confg.db.db.dsn, "db-dsn", "host=db port=5432 user=postgres dbname=postgres password=dinaisthebest sslmode=disable", "PostgreSQL DSN")
 
 	flag.Parse()
 
@@ -92,7 +92,7 @@ func main() {
 	confg.port = *port
 	confg.env = *env
 	// confg.fill = *fill
-	confg.db.db.dsn = *dbDsn
+	//confg.db.db.dsn = *dbDsn
 	// confg.migrations = *migrations
 
 	logger.PrintInfo("starting application with configuration", map[string]string{
@@ -153,9 +153,9 @@ func main() {
 	}
 }
 
-func openDB(confg config) (*sql.DB, error) {
-	db, err := sql.Open("postgres", confg.db.db.dsn)
-	// db, err := sql.Open("postgres", "postgres://postgres:dinaisthebest@localhost:5434/postgres?sslmode=disable")
+func openDB(cfg config) (*sqlx.DB, error) {
+	// Use sql.Open() to create an empty connection pool, using the DSN from the config // struct.
+	db, err := sqlx.Open("postgres", cfg.db.db.dsn)
 	if err != nil {
 		return nil, err
 	}

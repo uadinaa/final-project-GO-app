@@ -1,7 +1,7 @@
 package model
 
 import (
-	"database/sql"
+	"github.com/jmoiron/sqlx"
 	"errors"
 	"log"
 	"os"
@@ -23,7 +23,7 @@ var (
 	ErrEditConflict = errors.New("edit conflict")
 )
 
-func NewModels(db *sql.DB) Models {
+func NewModels(db *sqlx.DB) Models {
 	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
 	errorLog := log.New(os.Stderr, "ERROR\t", log.Ldate|log.Ltime|log.Lshortfile)
 	return Models{
